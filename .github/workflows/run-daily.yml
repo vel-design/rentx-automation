@@ -1,0 +1,59 @@
+name: RentX Daily Automation
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # runs every day at 6 AM UTC
+  workflow_dispatch:     # allows manual run from GitHub Actions tab
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Google Chrome
+        run: |
+          sudo apt update
+          sudo apt install -y google-chrome-stable
+          google-chrome --version
+
+      - name: Set up ChromeDriver
+        run: |
+          sudo apt install -y chromium-chromedriver
+          chromedriver --version
+
+      - name: Build and run tests
+        run: mvn clean test
+
+      - name: Upload ExtentReport as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ExtentReport
+          path: test-output/ExtentReport.html
+
+      - name: Send email with ExtentReport
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: "RentX Daily Test Report"
+          to: "vel@mobo.co.uk"
+          from: "RentX Automation Bot <${{ secrets.EMAIL_USER }}>"
+          body: |
+            Hello Vel,
+            
+            Here is your daily RentX test run report.
+
+            Regards,
+            GitHub Actions Bot
+          attachments: test-output/ExtentReport.html
