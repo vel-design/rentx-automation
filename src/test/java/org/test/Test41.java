@@ -336,7 +336,7 @@ public class Test41 {
         WebElement firstName = findVisible(By.cssSelector("input[name='first_name']"));
         WebElement lastName  = findVisible(By.cssSelector("input[name='sur_name']"));
         WebElement emailEl   = findVisible(By.cssSelector("input[name='email']"));
-        Thread.sleep(Duration.ofSeconds(10));;
+        Thread.sleep(Duration.ofSeconds(10).toMillis());
         WebElement phoneEl   = findVisible(By.cssSelector("input#phone_[name='phone']"));
 
         clearAndType(firstName, first);
