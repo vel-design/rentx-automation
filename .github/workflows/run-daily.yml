@@ -19,30 +19,38 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # ✅ Install Chrome and ChromeDriver
-      - name: Install Google Chrome and ChromeDriver
+      # ✅ Install the latest stable Google Chrome
+      - name: Install Google Chrome
         run: |
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable chromium-chromedriver
+          sudo apt update
+          sudo wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt update
+          sudo apt install -y google-chrome-stable
           google-chrome --version
+
+      # ✅ Install matching ChromeDriver version dynamically
+      - name: Set up ChromeDriver
+        run: |
+          CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d '.' -f1)
+          DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_VERSION}")
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${DRIVER_VERSION}/linux64/chromedriver-linux64.zip"
+          unzip chromedriver-linux64.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           chromedriver --version
-          which google-chrome
-          which chromedriver
 
-      # ✅ Set Chrome path (to help Selenium find it)
-      - name: Set Chrome binary path
-        run: echo "CHROME_BIN=$(which google-chrome)" >> $GITHUB_ENV
-
-      # ✅ Build and run tests in headless mode
+      # ✅ Run Maven tests (headless Chrome handled in code)
       - name: Build and run tests
-        run: mvn clean test -Dheadless=true
+        run: mvn clean test
 
+      # ✅ Upload test report as artifact
       - name: Upload ExtentReport as artifact
         uses: actions/upload-artifact@v4
         with:
           name: ExtentReport
           path: test-output/ExtentReport.html
 
+      # ✅ Send report via email
       - name: Send email with ExtentReport
         uses: dawidd6/action-send-mail@v3
         with:
@@ -55,9 +63,9 @@ jobs:
           from: "RentX Automation Bot <${{ secrets.EMAIL_USER }}>"
           body: |
             Hello Vel,
-            
+
             Here is your daily RentX test run report.
 
-            Regards,
+            Regards,  
             GitHub Actions Bot
           attachments: test-output/ExtentReport.html
