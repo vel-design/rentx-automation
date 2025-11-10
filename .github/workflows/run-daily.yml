@@ -19,19 +19,23 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install Google Chrome
+      # ✅ Install Chrome and ChromeDriver
+      - name: Install Google Chrome and ChromeDriver
         run: |
-          sudo apt update
-          sudo apt install -y google-chrome-stable
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable chromium-chromedriver
           google-chrome --version
-
-      - name: Set up ChromeDriver
-        run: |
-          sudo apt install -y chromium-chromedriver
           chromedriver --version
+          which google-chrome
+          which chromedriver
 
+      # ✅ Set Chrome path (to help Selenium find it)
+      - name: Set Chrome binary path
+        run: echo "CHROME_BIN=$(which google-chrome)" >> $GITHUB_ENV
+
+      # ✅ Build and run tests in headless mode
       - name: Build and run tests
-        run: mvn clean test
+        run: mvn clean test -Dheadless=true
 
       - name: Upload ExtentReport as artifact
         uses: actions/upload-artifact@v4
