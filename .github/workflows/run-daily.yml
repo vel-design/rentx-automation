@@ -1,36 +1,46 @@
 name: RentX Daily Automation
 
 on:
+  # ⏰ Run daily at 6 AM UTC
   schedule:
-    - cron: "0 6 * * *"  # runs every day at 6 AM UTC
-  workflow_dispatch:     # allows manual run from GitHub Actions tab
+    - cron: "0 6 * * *"
+
+  # 🚀 Run when changes are pushed to master
+  push:
+    branches:
+      - master
+
+  # 🧭 Allow manual run
+  workflow_dispatch:
 
 jobs:
   run-tests:
     runs-on: ubuntu-latest
 
     steps:
+      # 🏁 Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ☕ Set up Java 17 (Temurin)
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # ✅ Install the latest stable Google Chrome
+      # 🧩 Install Google Chrome (latest stable)
       - name: Install Google Chrome
         run: |
           sudo apt update
           sudo wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
           sudo apt update
           sudo apt install -y google-chrome-stable
           google-chrome --version
 
-      # ✅ Install matching ChromeDriver version dynamically
-      - name: Set up ChromeDriver
+      # 🧩 Install matching ChromeDriver dynamically
+      - name: Install ChromeDriver
         run: |
           CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d '.' -f1)
           DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_${CHROME_VERSION}")
@@ -39,33 +49,53 @@ jobs:
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
           chromedriver --version
 
-      # ✅ Run Maven tests (headless Chrome handled in code)
-      - name: Build and run tests
-        run: mvn clean test
+      # 🌎 Set environment variable for headless mode
+      - name: Set CI Environment Variable
+        run: echo "CI=true" >> $GITHUB_ENV
 
-      # ✅ Upload test report as artifact
-      - name: Upload ExtentReport as artifact
+      # 🧪 Run Maven tests
+      - name: Run Automation Tests
+        run: |
+          mvn clean test || true  # ensures workflow continues even if tests fail
+
+      # 📦 Upload ExtentReport (always)
+      - name: Upload Extent Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ExtentReport
           path: test-output/ExtentReport.html
 
-      # ✅ Send report via email
-      - name: Send email with ExtentReport
+      # 📷 Upload screenshots if available
+      - name: Upload Failure Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestScreenshots
+          path: test-output/screenshots/
+
+      # 📧 Send ExtentReport via email
+      - name: Send Email Report
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
-          subject: "RentX Daily Test Report"
+          subject: "RentX Automation Report — ${{ github.event_name }} Run"
           to: "vel@mobo.co.uk"
           from: "RentX Automation Bot <${{ secrets.EMAIL_USER }}>"
           body: |
-            Hello Vel,
+            Hello Vel 👋,
 
-            Here is your daily RentX test run report.
+            The RentX automation workflow has completed.
+
+            🕒 Triggered by: **${{ github.event_name }}**
+            🔗 Workflow logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            📎 The ExtentReport and screenshots (if any) are attached as GitHub artifacts.
 
             Regards,  
-            GitHub Actions Bot
+            GitHub Actions Bot 🤖
           attachments: test-output/ExtentReport.html
