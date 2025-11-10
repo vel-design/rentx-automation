@@ -63,7 +63,7 @@ public class Test4 {
         steps.waitForStep3();
 
         System.out.println("🔹 Filling customer details...");
-        steps.fillCustomerDetails("Test Vel", "Test Mobo", "test@mobo.com", "08754140966", true, mainHandle);
+        steps.fillCustomerDetails("Test Vel", "Test Mobo", "test@mobo.com", "8888888888", true, mainHandle);
 
         System.out.println("🔹 Submitting quote form...");
         steps.clickSubmit(mainHandle);
