@@ -41,7 +41,7 @@ public class Test4 {
         );
 
         steps.waitForStep3();
-        steps.fillCustomerDetails("Test Vel", "Test Mobo", "test@mobo.com", "08754140962", true, mainHandle);
+        steps.fillCustomerDetails("Test Vel", "Test Mobo", "test@mobo.com", "08754140966", true, mainHandle);
         steps.clickSubmit(mainHandle);
 
         WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(15));
