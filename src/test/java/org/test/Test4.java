@@ -3,128 +3,103 @@ package org.test;
 import org.openqa.selenium.*;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.support.ui.ExpectedConditions;
-import org.openqa.selenium.support.ui.WebDriverWait;
-import org.testng.ITestResult;
+import org.openqa.selenium.support.ui.*;
+import org.testng.Assert;
 import org.testng.annotations.*;
-
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
+import java.nio.file.*;
 import java.time.Duration;
-
-import static org.testng.Assert.*;
 
 @Listeners(org.test.TestListener.class)
 public class Test4 {
 
     private WebDriver driver;
+    private Test4Steps steps;
+    private String mainHandle;
 
     @BeforeClass
     public void setUp() {
         ChromeOptions options = new ChromeOptions();
-
-        // ✅ Detect if running in CI
         boolean isCI = "true".equalsIgnoreCase(System.getenv("CI"));
 
         if (isCI) {
-            System.out.println("🏗 Running in CI environment → headless Chrome enabled.");
+            System.out.println("Running in CI environment → enabling headless Chrome.");
             options.addArguments("--headless=new");
         } else {
-            System.out.println("💻 Running locally → visible Chrome window.");
+            System.out.println("Running locally → headless mode disabled.");
         }
 
-        // Common Chrome options
-        options.addArguments("--no-sandbox");
-        options.addArguments("--disable-dev-shm-usage");
-        options.addArguments("--window-size=1920,1080");
-        options.addArguments("--disable-gpu");
-        options.addArguments("--remote-allow-origins=*");
+        options.addArguments("--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu");
+        options.addArguments("--window-size=1920,1080", "--remote-allow-origins=*");
 
         driver = new ChromeDriver(options);
         TestListener.driver = driver;
+        steps = new Test4Steps(driver);
     }
 
     @Test
     public void rentXQuoteWorkflow() throws IOException {
-        System.out.println("🔹 Opening RentX quote page...");
+        System.out.println(" Opening RentX quote page...");
         driver.get("https://rentx.com/quote");
 
-        Test4Steps steps = new Test4Steps(driver);
-        String mainHandle = driver.getWindowHandle();
+        mainHandle = driver.getWindowHandle();
 
-        System.out.println("🔹 Running booking steps...");
-        steps.runFlowWithAddressIndices(
-                "l",
-                "19-12-2025",
-                "01:00 PM",
-                "st", 1,
-                "12", 2
-        );
-
-        // ✅ Dynamic wait for Step 3 visibility
-        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(30));
         try {
-            WebElement firstNameInput = wait.until(ExpectedConditions.visibilityOfElementLocated(
-                    By.cssSelector("input[name='first_name']")
-            ));
-            ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", firstNameInput);
-            System.out.println("✅ Step 3 visible: customer form loaded.");
-        } catch (TimeoutException e) {
-            takeScreenshot("failure_step3_not_visible.png");
-            System.err.println("❌ Step 3 form not visible. Screenshot captured.");
-            throw e;
-        }
+            System.out.println("🔹 Running booking flow steps...");
+            steps.runFlowWithAddressIndices(
+                    "l",             // search term (category)
+                    "19-12-2026",    // date
+                    "01:00 PM",      // time
+                    "st", 1,         // pickup
+                    "12", 2          // drop
+            );
 
-        System.out.println("🔹 Filling customer details...");
-        steps.fillCustomerDetails("Test Vel", "Test Mobo", "test@mobo.com", "8888888888", true, mainHandle);
+            steps.waitForStep3();
 
-        System.out.println("🔹 Submitting quote form...");
-        steps.clickSubmit(mainHandle);
+            System.out.println(" Filling customer details...");
+            steps.fillCustomerDetails("Test Vel", "Test Mobo", "test@mobo.com", "8888888888", true, mainHandle);
 
-        // ✅ Dynamic wait for “Thank You” message
-        try {
-            WebElement thankYouMessage = wait.until(ExpectedConditions.visibilityOfElementLocated(
+            System.out.println(" Submitting quote form...");
+            steps.clickSubmit(mainHandle);
+
+            // ✅ Wait dynamically for Thank You page
+            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(45));
+            WebElement thankYouMsg = wait.until(ExpectedConditions.visibilityOfElementLocated(
                     By.cssSelector("h3.ticket-text.ticket-text-color.mb-2.pb-2.border-bottom")
             ));
-            ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", thankYouMessage);
 
-            assertTrue(thankYouMessage.getText().contains("Thank you for the"),
-                    "Thank you page text mismatch or not found!");
-            System.out.println("✅ Test passed: Thank You page verified successfully.");
-        } catch (TimeoutException e) {
-            takeScreenshot("failure_thankyou_not_found.png");
-            System.err.println("❌ Timeout waiting for Thank You message. Screenshot captured.");
-            throw e;
+            String text = thankYouMsg.getText();
+            Assert.assertTrue(text.contains("Thank you for the"), 
+                    "Expected thank you message not found! Actual: " + text);
+
+            System.out.println(" Test passed — Thank you message verified successfully!");
+
+        } catch (Exception e) {
+            takeScreenshot("failure_rentx_quote.png");
+            System.err.println("Test failed: " + e.getMessage());
+            e.printStackTrace();
+            Assert.fail("Test failed due to: " + e.getMessage());
         }
     }
 
-    // 🧩 Capture failure screenshots for each test
-    @AfterMethod
-    public void captureFailureScreenshot(ITestResult result) {
-        if (result.getStatus() == ITestResult.FAILURE) {
-            try {
-                takeScreenshot(result.getName() + "_failed.png");
-                System.err.println("⚠️ Screenshot saved for failed test: " + result.getName());
-            } catch (IOException e) {
-                System.err.println("❌ Failed to save screenshot: " + e.getMessage());
-            }
+    private void takeScreenshot(String fileName) {
+        try {
+            File screenshot = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
+            File dest = new File("test-output/screenshots/" + fileName);
+            Files.createDirectories(dest.getParentFile().toPath());
+            Files.copy(screenshot.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            System.out.println(" Screenshot saved: " + dest.getAbsolutePath());
+        } catch (IOException ex) {
+            System.err.println(" Failed to capture screenshot: " + ex.getMessage());
         }
     }
 
-    // 📸 Helper to take screenshots
-    private void takeScreenshot(String fileName) throws IOException {
-        File screenshot = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
-        File dest = new File("test-output/screenshots/" + fileName);
-        Files.createDirectories(dest.getParentFile().toPath());
-        Files.copy(screenshot.toPath(), dest.toPath());
-    }
-
-    @AfterClass
+    @AfterClass(alwaysRun = true)
     public void tearDown() {
         if (driver != null) {
             driver.quit();
-            System.out.println("🧹 Browser closed. Test completed.");
+            System.out.println(" Browser closed. Test completed.");
         }
     }
 }
