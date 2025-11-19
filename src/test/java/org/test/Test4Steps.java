@@ -336,7 +336,7 @@ public class Test4Steps {
     public void fillCustomerDetails(String first, String last, String email, String phone, boolean agreeTerms, String mainHandle) {
         debug("Step3: fill details");
 
-        WebElement firstName = findVisible(By.cssSelector("input[name='first_name']"));
+        WebElement firstName = findVisible(By.xpath("//input[@placeholder='Enter First Name']"));
         WebElement lastName  = findVisible(By.cssSelector("input[name='sur_name']"));
         WebElement emailEl   = findVisible(By.cssSelector("input[name='email']"));
 
