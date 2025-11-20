@@ -5,6 +5,7 @@ import org.openqa.selenium.NoSuchElementException;
 import org.openqa.selenium.support.ui.*;
 import java.time.Duration;
 import java.util.*;
+import java.util.function.Supplier;
 
 public class Test4Steps {
 
@@ -20,19 +21,21 @@ public class Test4Steps {
         System.out.println("[DEBUG] " + msg);
     }
 
-    private void safeClick(WebElement el) {
+    /**
+     * Generic retry helper for operations that may throw StaleElementReferenceException.
+     */
+    private <T> T retryStale(Supplier<T> action) {
         int attempts = 0;
         while (attempts < 3) {
             try {
-                ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", el);
-                wait.until(ExpectedConditions.elementToBeClickable(el)).click();
-                return;
-            } catch (ElementClickInterceptedException | TimeoutException | StaleElementReferenceException e) {
+                return action.get();
+            } catch (StaleElementReferenceException e) {
                 attempts++;
-                debug("safeClick attempt " + attempts + " failed, retrying...");
+                debug("retryStale attempt " + attempts + " due to stale element");
+                try { Thread.sleep(200); } catch (InterruptedException ignored) {}
             }
         }
-        throw new RuntimeException("Failed to click element after 3 attempts");
+        throw new RuntimeException("Operation failed repeatedly due to stale elements");
     }
 
     private WebElement findVisible(By locator) {
@@ -61,6 +64,22 @@ public class Test4Steps {
         throw new RuntimeException("Elements not visible after retries: " + locator);
     }
 
+    private void safeClick(WebElement el) {
+        int attempts = 0;
+        while (attempts < 3) {
+            try {
+                ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", el);
+                wait.until(ExpectedConditions.elementToBeClickable(el)).click();
+                return;
+            } catch (ElementClickInterceptedException | TimeoutException | StaleElementReferenceException e) {
+                attempts++;
+                debug("safeClick attempt " + attempts + " failed, retrying...");
+                try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+            }
+        }
+        throw new RuntimeException("Failed to click element after 3 attempts");
+    }
+
     private void waitForOverlayToDisappear() {
         By overlay = By.cssSelector(".loading-overlay, .spinner, .blockUI, .modal-backdrop.show, .overlay, .page-loader");
         try {
@@ -85,10 +104,16 @@ public class Test4Steps {
     }
 
     private ExpectedCondition<Boolean> elementIsEnabled(WebElement el) {
-        return d -> el != null && el.isDisplayed() && el.isEnabled()
-                && !"true".equalsIgnoreCase(el.getAttribute("aria-disabled"))
-                && (el.getAttribute("disabled") == null)
-                && !(String.valueOf(el.getAttribute("class")).toLowerCase().contains("disabled"));
+        return d -> {
+            try {
+                return el != null && el.isDisplayed() && el.isEnabled()
+                        && !"true".equalsIgnoreCase(el.getAttribute("aria-disabled"))
+                        && (el.getAttribute("disabled") == null)
+                        && !(String.valueOf(el.getAttribute("class")).toLowerCase().contains("disabled"));
+            } catch (StaleElementReferenceException e) {
+                return false;
+            }
+        };
     }
 
     public void chooseCategory(String searchTerm) {
@@ -98,9 +123,15 @@ public class Test4Steps {
         categoryInput.clear();
         categoryInput.sendKeys(searchTerm);
 
-        String listId = categoryInput.getAttribute("aria-controls");
+        // Read aria-controls from a fresh element (in case it was re-rendered)
+        String listId = retryStale(() -> {
+            WebElement fresh = driver.findElement(By.id("fetch_service"));
+            String v = fresh.getAttribute("aria-controls");
+            return v;
+        });
         if (listId == null || listId.isBlank()) listId = "autoComplete_list_1";
 
+        // Wait for dropdown menu to appear (re-finding each time)
         wait.until(ExpectedConditions.refreshed(ExpectedConditions.visibilityOfElementLocated(By.id(listId))));
 
         By options = By.cssSelector("#" + listId + " [role='option']");
@@ -109,12 +140,19 @@ public class Test4Steps {
 
         safeClick(items.get(0));
 
-        wait.until(d -> {
-            String val = categoryInput.getAttribute("value");
-            return val != null && val.trim().length() > 1 && !val.trim().equalsIgnoreCase(searchTerm.trim());
+        // Wait until the input's value updates — re-find element inside lambda to avoid stale refs
+        wait.until(driver -> {
+            try {
+                WebElement fresh = driver.findElement(By.id("fetch_service"));
+                String val = fresh.getAttribute("value");
+                return val != null && val.trim().length() > 1 && !val.trim().equalsIgnoreCase(searchTerm.trim());
+            } catch (StaleElementReferenceException | NoSuchElementException e) {
+                return false;
+            }
         });
 
-        debug("Category chosen: " + categoryInput.getAttribute("value"));
+        String chosen = retryStale(() -> driver.findElement(By.id("fetch_service")).getAttribute("value"));
+        debug("Category chosen: " + chosen);
     }
 
     public void chooseFirstSubcategory() {
@@ -147,9 +185,16 @@ public class Test4Steps {
         String js = "const el=arguments[0],v=arguments[1];el.value=v;el.setAttribute('value',v);" +
                 "['input','change','blur'].forEach(e=>el.dispatchEvent(new Event(e,{bubbles:true})));";
         ((JavascriptExecutor) driver).executeScript(js, dateInput, ddMMyyyyWithDashes);
-        wait.until(d -> {
-            String v = dateInput.getAttribute("value");
-            return v != null && v.trim().equals(ddMMyyyyWithDashes);
+
+        // Re-find input on each check
+        wait.until(drv -> {
+            try {
+                WebElement fresh = drv.findElement(By.cssSelector("input[name='start_date']"));
+                String v = fresh.getAttribute("value");
+                return v != null && v.trim().equals(ddMMyyyyWithDashes);
+            } catch (StaleElementReferenceException | NoSuchElementException e) {
+                return false;
+            }
         });
         debug("Date set");
     }
@@ -191,9 +236,15 @@ public class Test4Steps {
         String js = "const el=arguments[0],v=arguments[1];el.value=v;el.setAttribute('value',v);" +
                 "['input','change','blur'].forEach(e=>el.dispatchEvent(new Event(e,{bubbles:true})));";
         ((JavascriptExecutor) driver).executeScript(js, timeInput, timeText);
-        wait.until(d -> {
-            String v = timeInput.getAttribute("value");
-            return v != null && v.trim().equals(timeText);
+
+        wait.until(drv -> {
+            try {
+                WebElement fresh = drv.findElement(By.cssSelector("input[name='start_time']"));
+                String v = fresh.getAttribute("value");
+                return v != null && v.trim().equals(timeText);
+            } catch (StaleElementReferenceException | NoSuchElementException e) {
+                return false;
+            }
         });
     }
 
@@ -249,16 +300,29 @@ public class Test4Steps {
         };
         for (By by : locators) {
             for (WebElement el : driver.findElements(by)) {
-                if (el.isDisplayed()) {
-                    return el;
-                }
+                try {
+                    if (el.isDisplayed()) {
+                        return el;
+                    }
+                } catch (StaleElementReferenceException ignored) {}
             }
         }
         return null;
     }
 
     private List<WebElement> findAddressOptionsForInput(WebElement input) {
-        String listId = input.getAttribute("aria-controls");
+        // attempt to get aria-controls from a fresh element (in case input was re-rendered)
+        String listId = null;
+        try {
+            String id = input.getAttribute("id");
+            if (id != null && !id.isBlank()) {
+                WebElement fresh = driver.findElement(By.id(id));
+                listId = fresh.getAttribute("aria-controls");
+            } else {
+                listId = input.getAttribute("aria-controls");
+            }
+        } catch (Exception ignored) {}
+
         if (listId != null && !listId.isBlank()) {
             List<WebElement> inside = driver.findElements(By.cssSelector(
                     "#" + listId + " [role='option'], #" + listId + " li, #" + listId + " .list-group-item, #" + listId + " .autocomplete-item"));
@@ -276,12 +340,14 @@ public class Test4Steps {
             if (!rows.isEmpty())
                 return rows;
         } catch (NoSuchElementException ignored) {
+        } catch (StaleElementReferenceException ignored) {
         }
         List<WebElement> pac = driver.findElements(By.cssSelector(".pac-container .pac-item"));
         if (!pac.isEmpty())
             return pac;
         return driver.findElements(By.cssSelector(".dropdown-menu.show .dropdown-item, .dropdown-menu.show li, [role='listbox'] [role='option']"));
     }
+
     private ExpectedCondition<Boolean> attributeToBeNotEmpty(final By locator, final String attribute) {
         return driver -> {
             try {
@@ -289,6 +355,8 @@ public class Test4Steps {
                 String attrValue = element.getAttribute(attribute);
                 return attrValue != null && !attrValue.trim().isEmpty();
             } catch (NoSuchElementException e) {
+                return false;
+            } catch (StaleElementReferenceException e) {
                 return false;
             }
         };
@@ -302,6 +370,7 @@ public class Test4Steps {
             )
         );
     }
+
     private void clearAndType(WebElement element, String text) {
         element.click();
         element.sendKeys(Keys.chord(Keys.CONTROL, "a")); // Select all existing text
@@ -309,6 +378,7 @@ public class Test4Steps {
         element.clear();                                 // Clear any remaining text
         element.sendKeys(text);                          // Type new text
     }
+
     private boolean tickTermsFromProvidedMarkup() {
         String script =
             "const wrap = document.querySelector('.checkbox-agree');" +
@@ -363,10 +433,10 @@ public class Test4Steps {
         return false;
     }
 
-
-
     public String selectAddressByIndex(String inputId, String query, int n) {
         if (n < 1) n = 1;
+
+        // find input fresh each time
         WebElement input = findVisible(By.id(inputId));
         safeClick(input);
         input.clear();
@@ -374,9 +444,17 @@ public class Test4Steps {
 
         WebDriverWait suggestionWait = new WebDriverWait(driver, Duration.ofSeconds(12));
         List<WebElement> options = suggestionWait.until(drv -> {
-            List<WebElement> opts = findAddressOptionsForInput(input);
-            return (!opts.isEmpty()) ? opts : null;
+            try {
+                // re-find input to avoid stale
+                WebElement freshInput = drv.findElement(By.id(inputId));
+                List<WebElement> opts = findAddressOptionsForInput(freshInput);
+                return (!opts.isEmpty()) ? opts : null;
+            } catch (StaleElementReferenceException | NoSuchElementException e) {
+                return null;
+            }
         });
+
+        if (options == null || options.isEmpty()) throw new TimeoutException("No address suggestions found");
 
         int idx = Math.min(n - 1, options.size() - 1);
         WebElement option = options.get(idx);
@@ -385,18 +463,31 @@ public class Test4Steps {
         ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", option);
         safeClick(option);
 
+        // Wait until the input value changes (re-find input inside lambda)
         suggestionWait.until(drv -> {
-            String v = input.getAttribute("value");
-            return v != null && v.trim().length() > 3 && !v.trim().equalsIgnoreCase(query.trim());
+            try {
+                WebElement fresh = drv.findElement(By.id(inputId));
+                String v = fresh.getAttribute("value");
+                return v != null && v.trim().length() > 3 && !v.trim().equalsIgnoreCase(query.trim());
+            } catch (StaleElementReferenceException | NoSuchElementException e) {
+                return false;
+            }
         });
 
+        // Wait until validation class (if any) clears - re-find inside lambda
         suggestionWait.until(drv -> {
-            String cls = input.getAttribute("class");
-            return cls == null || !cls.contains("is-invalid");
+            try {
+                WebElement fresh = drv.findElement(By.id(inputId));
+                String cls = fresh.getAttribute("class");
+                return cls == null || !cls.contains("is-invalid");
+            } catch (StaleElementReferenceException | NoSuchElementException e) {
+                return false;
+            }
         });
 
-        debug("Selected address for " + inputId + ": " + input.getAttribute("value"));
-        return input.getAttribute("value");
+        String selected = retryStale(() -> driver.findElement(By.id(inputId)).getAttribute("value"));
+        debug("Selected address for " + inputId + ": " + selected);
+        return selected;
     }
 
     public String selectPickupByIndex(String q, int n) {
@@ -413,6 +504,7 @@ public class Test4Steps {
                 By.cssSelector("input[name='first_name']")));
         ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", el);
     }
+
     public void clickSubmit(String mainHandle) {
         debug("Step3: click Submit");
         By[] candidates = new By[]{
@@ -424,9 +516,13 @@ public class Test4Steps {
         WebElement btn = null;
         for (By by : candidates) {
             List<WebElement> found = driver.findElements(by);
-            if (!found.isEmpty() && found.get(0).isDisplayed()) {
-                btn = found.get(0);
-                break;
+            if (!found.isEmpty()) {
+                try {
+                    if (found.get(0).isDisplayed()) {
+                        btn = found.get(0);
+                        break;
+                    }
+                } catch (StaleElementReferenceException ignored) {}
             }
         }
         if (btn == null) throw new NoSuchElementException("Submit button not found");
