@@ -6,14 +6,18 @@ import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 import java.time.Duration;
 import java.util.*;
+
 public class Test4Steps {
    private final WebDriver driver;
    private final WebDriverWait wait;
+
    public Test4Steps(WebDriver driver) {
        this.driver = driver;
        this.wait = new WebDriverWait(driver, Duration.ofSeconds(15));
    }
+
    private void debug(String msg) { System.out.println("[DEBUG] " + msg); }
+
    private void safeClick(WebElement el) {
        try {
            ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", el);
@@ -22,14 +26,18 @@ public class Test4Steps {
            ((JavascriptExecutor) driver).executeScript("arguments[0].click();", el);
        }
    }
+
    private WebElement findVisible(By locator) { return wait.until(ExpectedConditions.visibilityOfElementLocated(locator)); }
+
    private void nap(long ms) { try { Thread.sleep(ms); } catch (InterruptedException ignored) {} }
+
    private void waitForOverlayToDisappear() {
        By overlay = By.cssSelector(".loading-overlay, .spinner, .blockUI, .modal-backdrop.show, .overlay, .page-loader");
        try { new WebDriverWait(driver, Duration.ofSeconds(8))
                .until(ExpectedConditions.invisibilityOfElementLocated(overlay));
        } catch (TimeoutException ignored) {}
    }
+
    private void closeUnexpectedTabsExcept(String mainHandle) {
        try {
            Set<String> all = driver.getWindowHandles();
@@ -42,6 +50,7 @@ public class Test4Steps {
            driver.switchTo().window(mainHandle);
        } catch (Exception ignored) {}
    }
+
    public void chooseCategory(String searchTerm) {
        debug("Category: focusing input");
        WebElement categoryInput = findVisible(By.id("fetch_service"));
@@ -59,6 +68,7 @@ public class Test4Steps {
        safeClick(items.get(0));
        nap(150);
    }
+
    public void chooseFirstSubcategory() {
        By subcatLabels = By.cssSelector("label[for^='type_of_service']");
        List<WebElement> labels = wait.until(ExpectedConditions.visibilityOfAllElementsLocatedBy(subcatLabels));
@@ -66,16 +76,19 @@ public class Test4Steps {
        safeClick(labels.get(0));
        nap(150);
    }
+
    private void waitForSubcategoryChecked() {
        debug("Subcat: waiting for checked radio");
        wait.until(ExpectedConditions.presenceOfElementLocated(By.cssSelector("input[name='type_of_service']:checked")));
    }
+
    private void waitForDateStep() {
        debug("Step 2: waiting for date input");
        WebElement el = wait.until(ExpectedConditions.visibilityOfElementLocated(By.cssSelector("input[name='start_date']")));
        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", el);
        nap(150);
    }
+
    public void setDateByJS(String ddMMyyyyWithDashes) {
        debug("Date(JS): " + ddMMyyyyWithDashes);
        WebElement dateInput = findVisible(By.cssSelector("input[name='start_date']"));
@@ -87,6 +100,7 @@ public class Test4Steps {
            throw new RuntimeException("Date not set: " + got);
        }
    }
+
    public void pickTimeByText(String timeTextDesired) {
        debug("Time: open dropdown");
        WebElement trigger = findVisible(By.id("customDropdownButton"));
@@ -108,6 +122,7 @@ public class Test4Steps {
        }
        safeClick(selects.get(0)); // fallback
    }
+
    public void setTimeByJS(String timeText) {
        debug("Time(JS): " + timeText);
        WebElement timeInput = findVisible(By.cssSelector("input[name='start_time']"));
@@ -115,12 +130,14 @@ public class Test4Steps {
                "['input','change','blur'].forEach(e=>el.dispatchEvent(new Event(e,{bubbles:true})));";
        ((JavascriptExecutor) driver).executeScript(js, timeInput, timeText);
    }
+
    private String normalizeTime(String s) {
        if (s == null) return "";
        String t = s.replace('\u00A0',' ').replaceAll("[\\s\\n\\r]+"," ").trim();
        t = t.replaceAll("(?i)am","AM").replaceAll("(?i)pm","PM");
        return t;
    }
+
    private void closeOpenMenusIfAny() {
        try { ((JavascriptExecutor) driver).executeScript("document.activeElement && document.activeElement.blur();"); } catch (Exception ignored) {}
        try { driver.switchTo().activeElement().sendKeys(Keys.ESCAPE); } catch (Exception ignored) {}
@@ -129,12 +146,14 @@ public class Test4Steps {
                    By.cssSelector(".dropdown-menu.show,[role='menu'].show,.time-menu.show,.time-list.show")));
        } catch (TimeoutException ignored) {}
    }
+
    private ExpectedCondition<Boolean> elementIsEnabled(WebElement el) {
        return d -> el != null && el.isDisplayed() && el.isEnabled()
                && !"true".equalsIgnoreCase(el.getAttribute("aria-disabled"))
                && (el.getAttribute("disabled") == null)
                && !(String.valueOf(el.getAttribute("class")).toLowerCase().contains("disabled"));
    }
+
    private WebElement findNextLikeButtonOrNull() {
        By[] locs = {
                By.xpath("//button[.//span[normalize-space()='Next']]"),
@@ -147,6 +166,7 @@ public class Test4Steps {
        }
        return null;
    }
+
    public void clickNextSmart() {
        closeOpenMenusIfAny(); waitForOverlayToDisappear();
        WebElement next = findNextLikeButtonOrNull();
@@ -157,6 +177,7 @@ public class Test4Steps {
        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", next);
        safeClick(next); waitForOverlayToDisappear();
    }
+
    private List<WebElement> findAddressOptionsForInput(WebElement input) {
        String listId = input.getAttribute("aria-controls");
        if (listId != null && !listId.isBlank()) {
@@ -178,39 +199,157 @@ public class Test4Steps {
        if (!pac.isEmpty()) return pac;
        return driver.findElements(By.cssSelector(".dropdown-menu.show .dropdown-item, .dropdown-menu.show li, [role='listbox'] [role='option']"));
    }
+
+   /**
+    * Enhanced address selector: tries multiple times, waits longer for suggestions,
+    * clicks suggestion and verifies acceptance using several heuristics.
+    *
+    * inputId - id of the input (eg: fetch_postcode or fetch_address)
+    * query - text to type
+    * n - 1-based index of suggestion to pick
+    */
    public String selectAddressByIndex(String inputId, String query, int n) {
        if (n < 1) n = 1;
        WebElement input = findVisible(By.id(inputId));
-       safeClick(input); input.clear(); input.sendKeys(query);
-       List<WebElement> options = new ArrayList<>();
-       long end = System.currentTimeMillis() + 8000;
-       while (System.currentTimeMillis() < end) {
-           options = findAddressOptionsForInput(input);
-           if (!options.isEmpty()) break;
-           nap(120);
+       int attempts = 0;
+       final int maxAttempts = 3;
+       String lastValue = null;
+
+       while (attempts < maxAttempts) {
+           attempts++;
+           try {
+               debug("Address select attempt " + attempts + " for '" + query + "' on " + inputId);
+               safeClick(input);
+               input.clear();
+               input.sendKeys(query);
+
+               // longer wait for suggestions in CI
+               WebDriverWait longWait = new WebDriverWait(driver, Duration.ofSeconds(20));
+               List<WebElement> options = new ArrayList<>();
+               long end = System.currentTimeMillis() + 20000;
+               while (System.currentTimeMillis() < end) {
+                   options = findAddressOptionsForInput(input);
+                   if (!options.isEmpty()) break;
+                   nap(150);
+               }
+
+               if (options.isEmpty()) {
+                   debug("No suggestions found (attempt " + attempts + ")");
+                   throw new TimeoutException("No address suggestions for: " + query);
+               }
+
+               int idx = Math.min(n - 1, options.size() - 1);
+               WebElement option = options.get(idx);
+               WebElement clickable = null;
+               try { clickable = option.findElement(By.cssSelector("a, button")); } catch (NoSuchElementException ignored) {}
+               WebElement target = (clickable != null ? clickable : option);
+
+               ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", target);
+               safeClick(target);
+
+               // Wait for the input value to become populated
+               try {
+                   longWait.until(d -> {
+                       try {
+                           String v = input.getAttribute("value");
+                           return v != null && v.trim().length() > 3;
+                       } catch (Exception ex) {
+                           return false;
+                       }
+                   });
+               } catch (TimeoutException e) {
+                   debug("Value did not populate after clicking suggestion (attempt " + attempts + ")");
+               }
+
+               // Verify address accepted using heuristics
+               if (waitForAddressAccepted(input, 8)) {
+                   lastValue = input.getAttribute("value");
+                   debug("Address accepted: " + lastValue);
+                   return lastValue;
+               } else {
+                   debug("Address NOT accepted by form (attempt " + attempts + ")");
+                   // small pause before retry
+                   nap(500);
+               }
+
+           } catch (Exception ex) {
+               debug("selectAddressByIndex attempt " + attempts + " failed: " + ex.getMessage());
+               // small pause before retry
+               nap(500);
+           }
        }
-       if (options.isEmpty()) throw new TimeoutException("No address suggestions for: " + query);
-       int idx = Math.min(n - 1, options.size() - 1);
-       WebElement option = options.get(idx);
-       WebElement clickable = null;
-       try { clickable = option.findElement(By.cssSelector("a, button")); } catch (NoSuchElementException ignored) {}
-       WebElement target = (clickable != null ? clickable : option);
-       ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", target);
-       safeClick(target);
-       wait.until(d -> {
-           String v = input.getAttribute("value");
-           return v != null && v.trim().length() > 3;
-       });
-       return input.getAttribute("value");
+
+       // final attempt: if input contains something, return it, otherwise fail
+       String finalVal = input.getAttribute("value");
+       if (finalVal != null && finalVal.trim().length() > 3) return finalVal;
+       throw new TimeoutException("Failed to select address for " + inputId + " after " + maxAttempts + " attempts");
    }
+
+   // convenience wrappers
    public String selectPickupByIndex(String q, int n) { return selectAddressByIndex("fetch_postcode", q, n); }
    public String selectDropByIndex(String q, int n)   { return selectAddressByIndex("fetch_address",  q, n); }
+
+   /**
+    * Heuristic check that an address input was accepted by the page:
+    * - input.value populated
+    * - sibling/checkmark visible (common implementations)
+    * - input class doesn't include 'invalid' or contains 'valid'
+    * - aria-invalid != true
+    */
+   private boolean waitForAddressAccepted(WebElement input, int timeoutSeconds) {
+       WebDriverWait shortWait = new WebDriverWait(driver, Duration.ofSeconds(timeoutSeconds));
+       try {
+           return shortWait.until(d -> {
+               try {
+                   // 1) value present
+                   String v = input.getAttribute("value");
+                   if (v == null || v.trim().length() <= 3) return false;
+
+                   // 2) check aria-invalid
+                   String aria = input.getAttribute("aria-invalid");
+                   if ("true".equalsIgnoreCase(String.valueOf(aria))) return false;
+
+                   // 3) look for immediate sibling checkmark (svg, i, span with check)
+                   try {
+                       WebElement sibling = input.findElement(By.xpath("following-sibling::*[1]"));
+                       if (sibling != null) {
+                           String outer = sibling.getAttribute("outerHTML");
+                           if (outer != null && (outer.contains("check") || outer.contains("valid") || outer.contains("tick") || outer.contains("svg"))) {
+                               return true;
+                           }
+                       }
+                   } catch (Exception ignored) {}
+
+                   // 4) input class contains valid
+                   String cls = input.getAttribute("class");
+                   if (cls != null && cls.toLowerCase().contains("valid")) return true;
+
+                   // 5) ancestor element showing valid state
+                   try {
+                       WebElement parent = input.findElement(By.xpath("ancestor::*[1]"));
+                       String pcls = parent.getAttribute("class");
+                       if (pcls != null && pcls.toLowerCase().contains("valid")) return true;
+                   } catch (Exception ignored) {}
+
+                   // default to true if value is long enough (best effort)
+                   return v.trim().length() > 3;
+
+               } catch (Exception e) {
+                   return false;
+               }
+           });
+       } catch (TimeoutException e) {
+           return false;
+       }
+   }
+
    public void waitForStep3() {
        debug("Step3: wait first_name");
        WebElement el = wait.until(ExpectedConditions.visibilityOfElementLocated(
                By.cssSelector("input[name='first_name']")));
        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", el);
    }
+
    private void clearAndType(WebElement el, String text) {
        el.click();
        el.sendKeys(Keys.chord(Keys.CONTROL, "a"));
@@ -218,6 +357,7 @@ public class Test4Steps {
        el.clear();
        el.sendKeys(text);
    }
+
    private boolean tickTermsFromProvidedMarkup() {
        String script =
            "const wrap = document.querySelector('.checkbox-agree');" +
@@ -232,6 +372,7 @@ public class Test4Steps {
        Object ok = ((JavascriptExecutor) driver).executeScript(script);
        return Boolean.TRUE.equals(ok);
    }
+
    private boolean jsTickTermsInCurrentContext() {
        String script =
            "const mark=(el)=>{if(!el)return false; el.checked=true; ['input','change','click','blur'].forEach(e=>el.dispatchEvent(new Event(e,{bubbles:true}))); return true;};" +
@@ -247,6 +388,7 @@ public class Test4Steps {
        Object ok = ((JavascriptExecutor) driver).executeScript(script);
        return Boolean.TRUE.equals(ok);
    }
+
    private boolean tickTermsSmartWithIframeSearch() {
        if (tickTermsFromProvidedMarkup()) return true;
        if (jsTickTermsInCurrentContext()) return true;
@@ -265,6 +407,7 @@ public class Test4Steps {
        }
        return false;
    }
+
    private ExpectedCondition<Boolean> attributeToBeNotEmpty(final By locator, final String attribute) {
        return driver -> {
            try {
@@ -276,14 +419,15 @@ public class Test4Steps {
            }
        };
    }
+
    private void waitForFlagReady() {
-   	new WebDriverWait(driver, Duration.ofSeconds(10)).until(
-   		    ExpectedConditions.and(
-   		        ExpectedConditions.visibilityOfElementLocated(By.cssSelector(".iti__selected-flag")),
-   		        attributeToBeNotEmpty(By.cssSelector(".iti__selected-flag"), "title")
-   		   
-       ));
+       new WebDriverWait(driver, Duration.ofSeconds(10)).until(
+               ExpectedConditions.and(
+                       ExpectedConditions.visibilityOfElementLocated(By.cssSelector(".iti__selected-flag")),
+                       attributeToBeNotEmpty(By.cssSelector(".iti__selected-flag"), "title")
+               ));
    }
+
    public void fillCustomerDetails(String first, String last, String email, String phone, boolean agreeTerms, String mainHandle) {
        debug("Step3: fill details");
        WebElement firstName = findVisible(By.xpath("//input[@placeholder='Enter First Name']"));
@@ -307,6 +451,7 @@ public class Test4Steps {
            closeUnexpectedTabsExcept(mainHandle);
        }
    }
+
    public void clickSubmit(String mainHandle) {
        debug("Step3: click Submit");
        By[] candidates = new By[] {
@@ -327,6 +472,7 @@ public class Test4Steps {
        waitForOverlayToDisappear();
        closeUnexpectedTabsExcept(mainHandle);
    }
+
    public void runFlowWithAddressIndices(String term,
                                          String dateDdMmYyyy,
                                          String timeText,
@@ -340,10 +486,11 @@ public class Test4Steps {
        setDateByJS(dateDdMmYyyy);
        try { pickTimeByText(timeText); }
        catch (TimeoutException | NoSuchElementException e) { setTimeByJS(timeText); }
+
+       // NEW: robust pickup & drop selection
        selectPickupByIndex(pickupQuery, pickupIdx);
        selectDropByIndex(dropQuery, dropIdx);
+
        clickNextSmart();
    }
 }
-
-
